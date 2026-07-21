@@ -1,9 +1,8 @@
-"""FastAPI orchestrator — M0 skeleton.
+"""FastAPI orchestrator.
 
-M0 scope: /health, /readiness, /dataset/meta stub, and a guarded /echo that
-proves the LLM fallback chain works end-to-end from the deployed instance.
-Tier 0/1/2 endpoints land in M2-M4; their routes are declared here as 501 stubs
-so the frontend contract is stable from day one.
+M0 established the deploy path and the LLM fallback chain. M1 adds the real
+dataset behind /dataset/meta. Tier 0/1/2 endpoints are declared as 501 stubs so
+the frontend contract is stable from day one; they land in M2-M4.
 """
 from __future__ import annotations
 
@@ -16,6 +15,8 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .llm_client import AllProvidersFailedError, EmbeddingClient, LLMClient
+from .tools import catalog
+from .tools.catalog import CatalogUnavailableError
 
 logging.basicConfig(level=logging.DEBUG if settings.debug else logging.INFO)
 log = logging.getLogger("tfa")
@@ -76,11 +77,17 @@ async def health() -> dict:
 @app.get("/readiness")
 async def readiness() -> dict:
     """Which subsystems are wired. Used by the M0 exit checklist and the UI badge."""
+    try:
+        dataset_ready = bool(catalog.all_venues())
+    except CatalogUnavailableError:
+        dataset_ready = False
+
     return {
         "llm_providers": _llm.provider_names(),
         "llm_configured": _llm.configured,
         "embeddings_configured": _embedder.configured,
         "vector_db_configured": settings.upstash_configured,
+        "dataset_ready": dataset_ready,
         "default_tier": settings.default_tier,
         "allowed_origins": list(settings.allowed_origins),
     }
@@ -88,14 +95,22 @@ async def readiness() -> dict:
 
 @app.get("/dataset/meta")
 async def dataset_meta() -> dict:
-    """Populated in M1 once seed.py builds foodie.sqlite."""
-    return {
-        "cities": ["Calgary"],
-        "restaurants": 0,
-        "attractions": 0,
-        "data_version": "m0-placeholder",
-        "note": "Dataset lands in M1 (seed.py).",
-    }
+    """What the agent knows about. The disclaimer ships with the data."""
+    try:
+        meta = catalog.dataset_meta()
+        return {
+            "cities": [c.strip() for c in meta.get("cities", "").split(",") if c.strip()],
+            "restaurants": meta.get("restaurants", 0),
+            "attractions": meta.get("attractions", 0),
+            "cuisines": catalog.cuisines_available(),
+            "neighbourhoods": catalog.neighbourhoods_available(),
+            "data_version": meta.get("data_version", "unknown"),
+            "data_disclaimer": meta.get("data_disclaimer", ""),
+        }
+    except CatalogUnavailableError as exc:
+        raise HTTPException(
+            status_code=503, detail=f"Dataset not built: {exc}"
+        ) from exc
 
 
 @app.post("/echo")
