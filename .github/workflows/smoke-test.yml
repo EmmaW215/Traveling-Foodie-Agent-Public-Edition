@@ -1,0 +1,38 @@
+name: M0 Smoke Test (providers)
+
+# The M0 gate. Run this manually after adding repository Secrets.
+# API keys stay in GitHub Secrets — they are never printed or committed.
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly re-verification: free-tier model IDs get retired without notice.
+    - cron: "0 14 * * 1"
+
+jobs:
+  smoke:
+    name: Verify free LLM providers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install httpx
+        run: pip install httpx==0.28.1
+
+      - name: Run provider smoke test
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          UPSTASH_VECTOR_REST_URL: ${{ secrets.UPSTASH_VECTOR_REST_URL }}
+          UPSTASH_VECTOR_REST_TOKEN: ${{ secrets.UPSTASH_VECTOR_REST_TOKEN }}
+          # Override model IDs here (repository Variables) without touching code.
+          GROQ_MODEL: ${{ vars.GROQ_MODEL }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL }}
+          EMBEDDING_MODEL: ${{ vars.EMBEDDING_MODEL }}
+          EMBEDDING_DIMENSIONS: ${{ vars.EMBEDDING_DIMENSIONS || '768' }}
+        run: python scripts/smoke_test.py

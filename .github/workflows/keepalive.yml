@@ -1,0 +1,36 @@
+name: Keep Render Warm
+
+# Render free instances sleep after 15 minutes idle (~60 s cold start).
+# This pings /health during waking hours so visitors rarely hit a cold instance.
+# Set the repository Variable RENDER_HEALTH_URL to your Render URL + /health.
+on:
+  schedule:
+    # Every 10 min, 13:00–05:00 UTC ≈ 06:00–22:00 Mountain Time.
+    - cron: "*/10 13-23,0-5 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health endpoint
+        env:
+          HEALTH_URL: ${{ vars.RENDER_HEALTH_URL }}
+        run: |
+          if [ -z "$HEALTH_URL" ]; then
+            echo "RENDER_HEALTH_URL variable not set — skipping."
+            exit 0
+          fi
+          echo "Pinging $HEALTH_URL"
+          code=$(curl -s -o /tmp/body.json -w "%{http_code}" --max-time 90 "$HEALTH_URL" || echo "000")
+          echo "HTTP $code"
+          cat /tmp/body.json || true
+          # A cold instance may take ~60 s; a single retry covers the wake-up.
+          if [ "$code" != "200" ]; then
+            echo "Retrying after wake-up window..."
+            sleep 45
+            code=$(curl -s -o /tmp/body.json -w "%{http_code}" --max-time 90 "$HEALTH_URL" || echo "000")
+            echo "HTTP $code"
+            cat /tmp/body.json || true
+            [ "$code" = "200" ]
+          fi
