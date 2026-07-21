@@ -1,4 +1,4 @@
-"""M0 tests — no network, no API keys required."""
+"""API surface tests — no network, no API keys required."""
 from fastapi.testclient import TestClient
 
 from src.main import app
@@ -28,10 +28,26 @@ def test_readiness_shape():
         assert key in body
 
 
-def test_dataset_meta_placeholder():
+def test_dataset_meta_reports_the_real_catalogue():
     r = client.get("/dataset/meta")
     assert r.status_code == 200
-    assert r.json()["cities"] == ["Calgary"]
+    body = r.json()
+    assert body["cities"] == ["Calgary"]
+    assert body["restaurants"] == 60
+    assert body["attractions"] == 25
+    assert "japanese" in body["cuisines"]
+    assert "Downtown Core" in body["neighbourhoods"]
+
+
+def test_dataset_meta_surfaces_the_synthetic_data_disclaimer():
+    """Users must be told the venues are not real. This is a product
+    requirement, not a nicety — so it is a test, not a docstring."""
+    body = client.get("/dataset/meta").json()
+    assert "fictional" in body["data_disclaimer"].lower()
+
+
+def test_readiness_reports_dataset_state():
+    assert client.get("/readiness").json()["dataset_ready"] is True
 
 
 def test_tier_endpoints_declared_but_not_implemented():
