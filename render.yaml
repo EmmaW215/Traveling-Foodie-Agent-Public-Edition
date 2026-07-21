@@ -1,0 +1,37 @@
+# Render Blueprint — free tier.
+# Create the service from this file (New > Blueprint) OR create a Web Service
+# manually and mirror these settings. Verify the plan says "Free".
+services:
+  - type: web
+    name: traveling-foodie-agent-api
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Secrets — set these in the Render dashboard, never in this file.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: UPSTASH_VECTOR_REST_URL
+        sync: false
+      - key: UPSTASH_VECTOR_REST_TOKEN
+        sync: false
+      # Non-secret config — safe to keep here.
+      - key: ALLOWED_ORIGIN
+        value: https://traveling-foodie-agent-public-edition.vercel.app,http://localhost:3000
+      - key: PUBLIC_APP_URL
+        value: https://traveling-foodie-agent-public-edition.vercel.app
+      - key: DEFAULT_TIER
+        value: "2"
+      - key: EMBEDDING_DIMENSIONS
+        value: "768"
+      - key: PYTHON_VERSION
+        value: "3.12.4"
