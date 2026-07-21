@@ -50,13 +50,35 @@ def test_readiness_reports_dataset_state():
     assert client.get("/readiness").json()["dataset_ready"] is True
 
 
-def test_tier_endpoints_declared_but_not_implemented():
+def test_chat_tier0_still_a_stub():
     assert client.post("/chat").status_code == 501
-    r = client.post(
+
+
+def test_itinerary_streams_a_full_run():
+    """/itinerary is now a live SSE stream (Tier 1). Parse the frames and
+    check the pipeline ran end to end. No keys -> mock mode automatically."""
+    import json
+
+    with client.stream(
+        "POST",
         "/itinerary",
-        json={"preferences": {"city": "Calgary", "days": 2}, "tier": 2},
-    )
-    assert r.status_code == 501
+        json={"preferences": {"city": "Calgary", "days": 2, "cuisines": ["italian"]}, "tier": 1},
+    ) as response:
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers["content-type"]
+        events = [
+            json.loads(line[len("data: ") :])
+            for line in response.iter_lines()
+            if line.startswith("data: ")
+        ]
+
+    kinds = [e["event"] for e in events]
+    assert kinds[0] == "planner_start"
+    assert kinds[-1] == "final"
+    final = events[-1]
+    assert final["tier"] == 1
+    assert len(final["days"]) == 2
+    assert final["validation"]["ok"]
 
 
 def test_preferences_validation_rejects_bad_input():

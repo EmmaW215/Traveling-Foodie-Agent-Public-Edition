@@ -1,20 +1,26 @@
 """FastAPI orchestrator.
 
-M0 established the deploy path and the LLM fallback chain. M1 adds the real
-dataset behind /dataset/meta. Tier 0/1/2 endpoints are declared as 501 stubs so
-the frontend contract is stable from day one; they land in M2-M4.
+M0 established the deploy path and the LLM fallback chain; M1 added the dataset.
+M2 adds the Tier 1 pipeline behind /itinerary as a Server-Sent-Events stream:
+the agent trace streams live, then the final itinerary. Tier 0 (/chat) and
+Tier 2 remain stubs until M3/M4.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .config import settings
 from .llm_client import AllProvidersFailedError, EmbeddingClient, LLMClient
+from .models import ItineraryRequest
+from .orchestrator import run_tier1
 from .tools import catalog
 from .tools.catalog import CatalogUnavailableError
 
@@ -43,21 +49,8 @@ class EchoRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=500)
 
 
-class Preferences(BaseModel):
-    """Locked in at M0 so the frontend contract never changes later."""
-
-    city: str = "Calgary"
-    days: int = Field(2, ge=1, le=3)
-    budget_total: float = Field(500, gt=0)
-    party_size: int = Field(2, ge=1, le=8)
-    cuisines: list[str] = Field(default_factory=list)
-    allergies: list[str] = Field(default_factory=list)
-    notes: str = ""
-
-
-class ItineraryRequest(BaseModel):
-    preferences: Preferences
-    tier: int = Field(default=settings.default_tier, ge=0, le=2)
+# Preferences and ItineraryRequest now live in src/models.py so the orchestrator
+# and CLI can import them without pulling in FastAPI.
 
 
 # ---------------------------------------------------------------------------
@@ -136,16 +129,44 @@ async def echo(req: EchoRequest) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Tier endpoints — contract declared now, implemented in later milestones
+# Tier endpoints
 # ---------------------------------------------------------------------------
-@app.post("/chat")
-async def chat_tier0() -> dict:
-    raise HTTPException(status_code=501, detail="Tier 0 RAG copilot lands in M3.")
+def _sse(event: dict) -> str:
+    """Encode one trace event as an SSE frame."""
+    return f"data: {json.dumps(event)}\n\n"
+
+
+async def _itinerary_stream(req: ItineraryRequest) -> AsyncIterator[str]:
+    """Stream the pipeline's trace events, then a final frame.
+
+    Mock mode kicks in automatically when no provider is configured, so the
+    endpoint always produces a complete itinerary — a cold demo with no keys
+    still works, it just says so in the trace.
+    """
+    use_mock = not _llm.configured
+    try:
+        if req.tier in (0, 2):
+            # Tier 0 (M3) and Tier 2 (M4) aren't built yet; run Tier 1 and say so.
+            yield _sse({"event": "notice", "message": f"Tier {req.tier} lands later; running Tier 1."})
+        async for event in run_tier1(req.preferences, mock=use_mock):
+            yield _sse(event)
+    except CatalogUnavailableError as exc:
+        yield _sse({"event": "error", "detail": f"Dataset not built: {exc}"})
+    except Exception as exc:  # noqa: BLE001 — surface any failure to the client, don't hang the stream
+        log.exception("itinerary stream failed")
+        yield _sse({"event": "error", "detail": str(exc)})
 
 
 @app.post("/itinerary")
-async def itinerary(req: ItineraryRequest) -> dict:
-    raise HTTPException(
-        status_code=501,
-        detail=f"Tier {req.tier} orchestrator lands in M2 (tier 1) / M4 (tier 2).",
+async def itinerary(req: ItineraryRequest) -> StreamingResponse:
+    """Tier 1 itinerary as Server-Sent Events: trace frames then a final frame."""
+    return StreamingResponse(
+        _itinerary_stream(req),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.post("/chat")
+async def chat_tier0() -> dict:
+    raise HTTPException(status_code=501, detail="Tier 0 RAG copilot lands in M3.")
