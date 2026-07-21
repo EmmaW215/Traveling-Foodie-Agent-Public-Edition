@@ -31,7 +31,10 @@ services:
         value: https://traveling-foodie-agent-public-edition.vercel.app
       - key: DEFAULT_TIER
         value: "2"
+      - key: EMBEDDING_MODEL
+        value: gemini-embedding-001
+      # Must equal the dimension of the Upstash Vector index.
       - key: EMBEDDING_DIMENSIONS
-        value: "768"
+        value: "1536"
       - key: PYTHON_VERSION
         value: "3.12.4"

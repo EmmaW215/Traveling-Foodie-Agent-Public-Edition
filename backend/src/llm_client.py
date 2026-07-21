@@ -161,6 +161,9 @@ class EmbeddingClient:
 
     Used at build time (embed_push.py) for the corpus and at runtime for the
     single user query in Tier 0.
+
+    The output width is sent explicitly: gemini-embedding-001 returns 3072
+    dimensions unless truncated, and it must match the Upstash index exactly.
     """
 
     def __init__(self) -> None:
@@ -175,10 +178,14 @@ class EmbeddingClient:
         if not self.cfg.enabled:
             raise AllProvidersFailedError("GEMINI_API_KEY not set — embeddings unavailable.")
 
+        payload: dict[str, Any] = {"model": self.cfg.model, "input": texts}
+        if self.cfg.dimensions:
+            payload["dimensions"] = self.cfg.dimensions
+
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self.cfg.base_url.rstrip('/')}/embeddings",
-                json={"model": self.cfg.model, "input": texts},
+                json=payload,
                 headers={
                     "Authorization": f"Bearer {self.cfg.api_key}",
                     "Content-Type": "application/json",
@@ -186,4 +193,12 @@ class EmbeddingClient:
             )
             resp.raise_for_status()
             data = resp.json()
-        return [item["embedding"] for item in data["data"]]
+
+        vectors = [item["embedding"] for item in data["data"]]
+        if vectors and self.cfg.dimensions and len(vectors[0]) != self.cfg.dimensions:
+            raise AllProvidersFailedError(
+                f"Embedding width mismatch: model returned {len(vectors[0])} dims, "
+                f"EMBEDDING_DIMENSIONS is {self.cfg.dimensions}. These must match "
+                f"the Upstash index or every upsert will be rejected."
+            )
+        return vectors
