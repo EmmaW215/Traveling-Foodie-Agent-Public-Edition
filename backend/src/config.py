@@ -34,7 +34,9 @@ class Provider:
 
 # ---------------------------------------------------------------------------
 # Provider chain: Groq (primary) -> Gemini (fallback 1) -> OpenRouter (last).
-# Model IDs are env-overridable; the defaults below are what we verify at M0.
+#
+# Model IDs are env-overridable because free-tier catalogs churn. Verify the
+# current ones with `python scripts/smoke_test.py` before trusting a default.
 # ---------------------------------------------------------------------------
 def build_provider_chain() -> list[Provider]:
     chain = [
@@ -57,7 +59,11 @@ def build_provider_chain() -> list[Provider]:
             name="openrouter",
             base_url=_env("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
             api_key=_env("OPENROUTER_API_KEY"),
-            model=_env("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+            # OpenRouter's free lineup changes often; there is no stable default
+            # worth hardcoding. Set OPENROUTER_MODEL to a current ':free' slug
+            # (run `smoke_test.py` to list them). Left blank, the provider is
+            # simply skipped -- it is the optional tertiary fallback.
+            model=_env("OPENROUTER_MODEL"),
             extra_headers={
                 "HTTP-Referer": _env("PUBLIC_APP_URL", "https://localhost:3000"),
                 "X-Title": "Traveling Foodie Agent",
@@ -69,15 +75,21 @@ def build_provider_chain() -> list[Provider]:
 
 @dataclass(frozen=True)
 class EmbeddingConfig:
-    """Gemini free embeddings, exposed through its OpenAI-compatible endpoint."""
+    """Free Gemini embeddings, exposed through the OpenAI-compatible endpoint.
+
+    NOTE: text-embedding-004 was shut down on 2026-01-14. gemini-embedding-001
+    replaces it. It returns 3072 dimensions by default and supports truncation
+    to 768 / 1536 / 3072 -- we always send the width explicitly so it matches
+    the Upstash index.
+    """
 
     base_url: str = _env(
         "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai"
     )
     api_key: str = _env("GEMINI_API_KEY")
-    model: str = _env("EMBEDDING_MODEL", "text-embedding-004")
-    # Must match the dimension chosen when creating the Upstash Vector index.
-    dimensions: int = int(_env("EMBEDDING_DIMENSIONS", "768"))
+    model: str = _env("EMBEDDING_MODEL", "gemini-embedding-001")
+    # MUST equal the dimension of the Upstash Vector index.
+    dimensions: int = int(_env("EMBEDDING_DIMENSIONS", "1536"))
 
     @property
     def enabled(self) -> bool:
