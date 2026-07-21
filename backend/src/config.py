@@ -8,12 +8,21 @@ from dataclasses import dataclass, field
 
 
 def _env(key: str, default: str = "") -> str:
-    return os.environ.get(key, default).strip()
+    """Read an env var, treating an empty value as absent.
+
+    This is deliberate, not defensive noise. GitHub Actions expands an unset
+    repository Variable (`${{ vars.FOO }}`) to an *empty string* rather than
+    omitting the variable, so `os.environ.get(key, default)` returns "" and
+    silently overrides the default. That cost us a failed M0 smoke run: the
+    embedding call went out with `{"model": ""}`. Same trap applies to a
+    Render env var left blank.
+    """
+    value = os.environ.get(key, "").strip()
+    return value if value else default
 
 
 def _env_bool(key: str, default: bool = False) -> bool:
-    raw = _env(key, str(default)).lower()
-    return raw in {"1", "true", "yes", "on"}
+    return _env(key, str(default)).lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass(frozen=True)
@@ -34,7 +43,9 @@ class Provider:
 
 # ---------------------------------------------------------------------------
 # Provider chain: Groq (primary) -> Gemini (fallback 1) -> OpenRouter (last).
-# Model IDs are env-overridable; the defaults below are what we verify at M0.
+#
+# Model IDs are env-overridable because free-tier catalogs churn. Verify the
+# current ones with `python scripts/smoke_test.py` before trusting a default.
 # ---------------------------------------------------------------------------
 def build_provider_chain() -> list[Provider]:
     chain = [
@@ -57,7 +68,10 @@ def build_provider_chain() -> list[Provider]:
             name="openrouter",
             base_url=_env("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
             api_key=_env("OPENROUTER_API_KEY"),
-            model=_env("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+            # No default: OpenRouter's free lineup rotates and any slug we
+            # hardcode will rot. Blank => provider skipped (it is the optional
+            # tertiary fallback). `smoke_test.py --list-free` lists live ones.
+            model=_env("OPENROUTER_MODEL"),
             extra_headers={
                 "HTTP-Referer": _env("PUBLIC_APP_URL", "https://localhost:3000"),
                 "X-Title": "Traveling Foodie Agent",
@@ -69,15 +83,20 @@ def build_provider_chain() -> list[Provider]:
 
 @dataclass(frozen=True)
 class EmbeddingConfig:
-    """Gemini free embeddings, exposed through its OpenAI-compatible endpoint."""
+    """Free Gemini embeddings, exposed through the OpenAI-compatible endpoint.
+
+    NOTE: text-embedding-004 was shut down on 2026-01-14. gemini-embedding-001
+    replaces it; it returns 3072 dims by default and supports truncation to
+    768 / 1536 / 3072, so we always send the width explicitly.
+    """
 
     base_url: str = _env(
         "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai"
     )
     api_key: str = _env("GEMINI_API_KEY")
-    model: str = _env("EMBEDDING_MODEL", "text-embedding-004")
+    model: str = _env("EMBEDDING_MODEL", "gemini-embedding-001")
     # Must match the dimension chosen when creating the Upstash Vector index.
-    dimensions: int = int(_env("EMBEDDING_DIMENSIONS", "768"))
+    dimensions: int = int(_env("EMBEDDING_DIMENSIONS", "1536"))
 
     @property
     def enabled(self) -> bool:
