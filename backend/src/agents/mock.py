@@ -46,6 +46,7 @@ class MockLLM:
         role = self._role(system)
         self.calls.append(role)
         handler = {
+            "copilot": self._copilot,
             "planner": self._planner,
             "restaurant": self._pick,
             "attraction": self._pick,
@@ -56,10 +57,32 @@ class MockLLM:
     @staticmethod
     def _role(system: str) -> str:
         head = system[:40].lower()
-        for role in ("planner", "restaurant", "attraction", "formatter"):
+        # Copilot first: its prompt also mentions venues, so check it before
+        # the executor roles.
+        for role in ("copilot", "planner", "restaurant", "attraction", "formatter"):
             if role in head:
                 return role
         return "unknown"
+
+    @staticmethod
+    def _copilot(user: str) -> str:
+        """Ground the answer in the first retrieved venue id. Deterministic."""
+        ids = re.findall(r"id=(\S+)", user)
+        if not ids:
+            return json.dumps(
+                {
+                    "answerable": False,
+                    "answer": "The guide doesn't cover that.",
+                    "cited_venue_ids": [],
+                }
+            )
+        return json.dumps(
+            {
+                "answerable": True,
+                "answer": f"Based on the guide, {ids[0]} is a strong match for what you asked.",
+                "cited_venue_ids": [ids[0]],
+            }
+        )
 
     # -- per-agent deterministic replies ------------------------------------
     @staticmethod
