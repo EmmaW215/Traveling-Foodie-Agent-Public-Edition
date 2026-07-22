@@ -12,20 +12,30 @@ Upstash Vector · Groq / Gemini / OpenRouter.
 > Tier 1 scripted agent → Tier 2 multi-agent with a bounded critic loop). All venue data is
 > public and pre-staged; the agent answers only from its knowledge base.
 
-**Status: M0 — scaffold.** The deployment path, provider fallback chain and API contract are in
-place. Tiers land in M2–M4.
+**Status: M5 — complete.** All three tiers are live behind a Next.js chat UI with a live
+agent-trace timeline, itinerary cards, a running budget bar, and a Leaflet/OpenStreetMap map. The
+whole thing runs with no API keys (deterministic mock model + local lexical retriever); add the free
+keys to light up the live LLM chain and Upstash retrieval.
+
+### Using it
+
+- **Ask the guide** (Tier 0): a RAG copilot that answers questions about the Calgary dataset and
+  cites what it used, refusing anything outside it.
+- **Plan a trip** (Tier 2, default): preferences → the parallel multi-agent pipeline with the
+  bounded Critic loop, streamed live into the trace timeline, then a day-by-day itinerary + map.
+- **Plan (simple)** (Tier 1): the same result from the sequential pipeline.
 
 ---
 
 ## Architecture
 
 ```
-Browser ──> Vercel (Next.js, static) ──HTTPS/SSE──> Render (FastAPI orchestrator)
-                                                     ├── Tier 0  RAG copilot        (M3)
-                                                     ├── Tier 1  scripted agent     (M2)
-                                                     ├── Tier 2  multi-agent + critic (M4)
-                                                     ├── Tools   SQLite catalog · distance matrix · budget
-                                                     └── LLM     Groq → Gemini → OpenRouter (free)
+Browser ──> Vercel (Next.js chat UI, static) ──HTTPS/SSE──> Render (FastAPI orchestrator)
+   trace timeline · itinerary cards                          ├── Tier 0  RAG copilot          /chat
+   budget bar · Leaflet/OSM map                              ├── Tier 1  scripted agent       /itinerary
+                                                             ├── Tier 2  multi-agent + critic /itinerary (SSE)
+                                                             ├── Tools   SQLite catalog · distance matrix · budget
+                                                             └── LLM     Groq → Gemini → OpenRouter (free)
                                           Data: pre-staged CSV → SQLite + Upstash Vector
 ```
 
@@ -45,36 +55,42 @@ Browser ──> Vercel (Next.js, static) ──HTTPS/SSE──> Render (FastAPI 
 .
 ├── backend/                  # FastAPI orchestrator (deployed to Render)
 │   ├── src/
-│   │   ├── main.py           #   /health /readiness /dataset/meta /echo  + tier stubs
+│   │   ├── main.py           #   /health /readiness /dataset/meta /chat /itinerary
+│   │   ├── orchestrator.py   #   Tier 1 (sequential) + Tier 2 (parallel + critic loop)
+│   │   ├── agents/           #   planner · executors · critic · formatter · mock
+│   │   ├── rag/              #   Tier 0 copilot: retriever (Upstash/local) + grounding guard
+│   │   ├── tools/            #   catalog (SQLite) · distance matrix · budget
+│   │   ├── guards.py         #   SLOT_IDS · allergen · budget · venue-exists
 │   │   ├── config.py         #   env-driven settings & provider chain
 │   │   └── llm_client.py     #   OpenAI-compatible client + fallback + embeddings
-│   ├── tests/                #   offline tests — no API keys needed
-│   ├── requirements.txt
-│   └── pytest.ini
-├── frontend/                 # Next.js app (deployed to Vercel)
-│   ├── app/page.tsx          #   M0 status panel + LLM round-trip test
-│   └── lib/api.ts            #   backend client with cold-start retry
-├── scripts/smoke_test.py     # M0 provider gate (runs in Actions, reads Secrets)
-├── .github/workflows/        # ci.yml · smoke-test.yml · keepalive.yml
+│   ├── data/raw/*.csv        #   pre-staged Calgary dataset (fictional venues, real geography)
+│   ├── scripts/              #   seed.py · embed_push.py · demo.py · ask.py
+│   └── tests/                #   offline tests — no API keys needed
+├── frontend/                 # Next.js chat UI (deployed to Vercel, static)
+│   ├── app/page.tsx          #   tier switcher, cold-start + disclaimer, orchestration
+│   ├── components/           #   PreferenceForm · TraceTimeline · ItineraryView · MapView · CopilotChat
+│   └── lib/api.ts            #   backend client: SSE stream reader + cold-start retry
+├── scripts/smoke_test.py     # provider gate (runs in Actions, reads Secrets)
+├── .github/workflows/        # ci.yml · smoke-test.yml · keepalive.yml · embed-push.yml
 ├── render.yaml               # Render blueprint (free plan)
 └── .env.example
 ```
 
 ---
 
-## M0 setup — do this once
+## Setup
 
-### 1. Collect free API keys
+### 1. Collect free API keys (all optional — the app runs without them)
 
 | Key | Where | Notes |
 |---|---|---|
-| `GROQ_API_KEY` | console.groq.com | primary chat provider |
+| `GROQ_API_KEY` | console.groq.com | primary chat provider (starts `gsk_`) |
 | `GEMINI_API_KEY` | aistudio.google.com | chat fallback **and** embeddings |
-| `UPSTASH_VECTOR_REST_URL` / `_TOKEN` | console.upstash.com → Vector | create index: **768 dims, COSINE** |
+| `UPSTASH_VECTOR_REST_URL` / `_TOKEN` | console.upstash.com → Vector | create index: **1536 dims, COSINE** |
 | `OPENROUTER_API_KEY` *(optional)* | openrouter.ai | last-resort fallback |
 
-> The 768/COSINE choice pairs with `text-embedding-004`. If the smoke test reports a different
-> dimension, it tells you exactly what to change — recreate the index or set
+> 1536/COSINE pairs with `gemini-embedding-001` (which supports 768 / 1536 / 3072). If the smoke
+> test reports a different dimension, it tells you exactly what to change — recreate the index or set
 > `EMBEDDING_DIMENSIONS` to match.
 
 ### 2. Add GitHub repository Secrets
@@ -98,37 +114,20 @@ and `RENDER_HEALTH_URL` (used by the keep-alive workflow).
 1. New → **Web Service** → connect the repo.
 2. Root Directory `backend` · Runtime **Python 3** · Plan **Free** ← *confirm this; the create
    page sometimes preselects Starter.*
-3. Build: `pip install -r requirements.txt`
+3. Build: `pip install -r requirements.txt && python -m scripts.seed`
    Start: `uvicorn src.main:app --host 0.0.0.0 --port $PORT`
    Health check path: `/health`
-4. Add the same environment variables (keys above) plus:
+4. Add the environment variables (keys above) plus:
    `ALLOWED_ORIGIN=https://traveling-foodie-agent-public-edition.vercel.app,http://localhost:3000`
 
 *(Or use `render.yaml` via New → Blueprint, then fill the secret values in the dashboard.)*
 
 ### 4. Deploy the frontend to Vercel
 
-1. Import the repo (already linked to project `traveling-foodie-agent-public-edition`).
+1. Import the repo.
 2. **Root Directory: `frontend`** · framework preset Next.js.
 3. Environment variable: `NEXT_PUBLIC_API_BASE=https://<your-service>.onrender.com`
 4. Redeploy so the variable is baked into the build.
-
-### 5. Run the M0 gate
-
-`Actions → M0 Smoke Test (providers) → Run workflow`
-
----
-
-## M0 exit criteria
-
-- [ ] `GET https://<render-service>.onrender.com/health` returns `200 {"status":"ok"}`
-- [ ] Vercel URL loads and its status card shows **connected**
-- [ ] `/readiness` lists at least one LLM provider; embeddings + vector DB show *configured*
-- [ ] Smoke-test workflow is green; working model IDs recorded in repo Variables
-- [ ] CI (backend tests + frontend build) passes on `main`
-- [ ] The "LLM round-trip test" button on the live site returns a reply and names the provider
-
-All six checked → **M1** (Calgary dataset, `seed.py`, catalog/distance/budget tools).
 
 ---
 
@@ -139,15 +138,17 @@ All six checked → **M1** (Calgary dataset, `seed.py`, catalog/distance/budget 
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-cp ../.env.example .env          # fill in keys
+python -m scripts.seed             # build the dataset
 uvicorn src.main:app --reload --port 8000
-pytest -q                        # offline tests, no keys required
+pytest -q                          # offline tests, no keys required
+python -m scripts.demo --tier 2    # Tier 2 itinerary in the terminal (mock, no keys)
+python -m scripts.ask              # Tier 0 copilot, the three standard questions
 
 # Frontend (second terminal)
 cd frontend
 npm install
-cp .env.example .env.local       # NEXT_PUBLIC_API_BASE=http://localhost:8000
-npm run dev                      # http://localhost:3000
+cp .env.example .env.local         # NEXT_PUBLIC_API_BASE=http://localhost:8000
+npm run dev                        # http://localhost:3000
 ```
 
 ---
@@ -162,6 +163,8 @@ npm run dev                      # http://localhost:3000
 4. **No vendor SDKs.** `httpx` only, so the backend stays small enough for a 512 MB instance and
    providers stay swappable.
 5. **Secrets never in code.** `.env` is gitignored; production values live in Render/Vercel/GitHub.
+6. **Offline path is real, not a stub.** A deterministic mock model + a local lexical retriever run
+   the entire app with no keys, so CI is deterministic and a cold demo always works.
 
 ---
 
@@ -170,13 +173,31 @@ npm run dev                      # http://localhost:3000
 | Milestone | Scope |
 |---|---|
 | **M0** ✅ | Scaffold, deploy path, provider fallback chain, CI, smoke test |
-| **M1** | Calgary dataset (+ planted edge cases), `seed.py`, catalog/distance/budget tools |
-| **M2** | Tier 1 — Planner → Restaurant → Budget → Formatter |
-| **M3** | Tier 0 — RAG copilot over Upstash Vector, venue-exists guard |
-| **M4** | Tier 2 — parallel executors, Attraction + Route agents, critic loop |
-| **M5** | Chat UI, trace timeline, itinerary cards, Leaflet map, public launch |
+| **M1** ✅ | Calgary dataset (+ planted edge cases), `seed.py`, catalog/distance/budget tools |
+| **M2** ✅ | Tier 1 — Planner → Restaurant → Budget → Formatter |
+| **M3** ✅ | Tier 0 — RAG copilot over Upstash Vector, venue-exists guard |
+| **M4** ✅ | Tier 2 — parallel executors, Attraction + Route agents, critic loop |
+| **M5** ✅ | Chat UI, trace timeline, itinerary cards, Leaflet map, public launch |
+
+---
+
+## Public launch checklist
+
+The app works deployed with **no keys** (mock model + local retriever). To go fully live:
+
+1. **Frontend (Vercel):** root directory `frontend`, set `NEXT_PUBLIC_API_BASE` to your Render URL,
+   redeploy. The build is fully static — no serverless functions, so it stays deep inside Hobby.
+2. **Backend (Render):** confirm the free plan; set `ALLOWED_ORIGIN` to your Vercel domain (CORS).
+3. **Keep it warm:** set the repo Variable `RENDER_HEALTH_URL` so the keep-alive workflow pings
+   `/health` and visitors rarely hit a ~60 s cold start. The UI shows a "waking backend" state
+   regardless.
+4. **Live LLMs + Upstash (optional):** add `GROQ_API_KEY` / `GEMINI_API_KEY` and the Upstash
+   secrets on Render, run **Actions → Embed corpus to Upstash** once, and `/readiness` flips to
+   `rag_retriever: upstash`. Until then it serves grounded answers from the local lexical retriever.
+
+Cost audit at every step: **$0/month**, no credit card in the runtime path.
 
 ## License
 
-MIT. Venue data derived from OpenStreetMap (© OpenStreetMap contributors, ODbL) and public
-open-data sources.
+MIT. Venue data is fictional (see `backend/data/README.md`); the schema is OpenStreetMap-compatible
+for a future real-data import.
