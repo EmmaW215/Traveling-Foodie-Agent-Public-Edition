@@ -1,0 +1,36 @@
+name: Embed corpus to Upstash
+
+# Populates the Upstash Vector index from the dataset. Run manually after the
+# dataset changes (or after first setting up Upstash). Not part of every deploy:
+# the vectors persist in Upstash, so this only needs to run when chunks change.
+on:
+  workflow_dispatch:
+
+jobs:
+  embed:
+    name: Embed and upsert
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build the dataset
+        run: python -m scripts.seed
+
+      - name: Embed corpus and upsert to Upstash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          UPSTASH_VECTOR_REST_URL: ${{ secrets.UPSTASH_VECTOR_REST_URL }}
+          UPSTASH_VECTOR_REST_TOKEN: ${{ secrets.UPSTASH_VECTOR_REST_TOKEN }}
+          EMBEDDING_MODEL: ${{ vars.EMBEDDING_MODEL }}
+          EMBEDDING_DIMENSIONS: ${{ vars.EMBEDDING_DIMENSIONS || '1536' }}
+        run: python -m scripts.embed_push

@@ -211,10 +211,15 @@ def build_chunks(venues: list[dict]) -> list[dict]:
     chunks = []
     for v in venues:
         closed = v["closed_days"].replace(";", ", ") or "open daily"
+        cost = (
+            "Free to visit — no admission cost."
+            if v["cost_per_person"] == 0
+            else f"Typical cost per person: ${v['cost_per_person']:.0f} CAD."
+        )
         parts = [
             f"{v['name']} is a {v['category']} {v['kind']} in {v['neighbourhood']}, Calgary.",
             v["description"],
-            f"Typical cost per person: ${v['cost_per_person']:.0f} CAD.",
+            cost,
             f"Hours: {v['open_time']} to {v['close_time']}. Closed: {closed}.",
             f"Suitable for: {v['slot_types'].replace(';', ', ')}.",
         ]

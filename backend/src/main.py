@@ -1,9 +1,8 @@
 """FastAPI orchestrator.
 
-M0 established the deploy path and the LLM fallback chain; M1 added the dataset.
-M2 adds the Tier 1 pipeline behind /itinerary as a Server-Sent-Events stream:
-the agent trace streams live, then the final itinerary. Tier 0 (/chat) and
-Tier 2 remain stubs until M3/M4.
+M0 established the deploy path and the LLM fallback chain; M1 added the dataset;
+M2 the Tier 1 itinerary pipeline behind /itinerary (SSE); M3 the Tier 0 RAG
+copilot behind /chat. Tier 2's multi-agent orchestrator lands in M4.
 """
 from __future__ import annotations
 
@@ -17,10 +16,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from .agents.base import default_model
+from .agents.mock import MockLLM
 from .config import settings
 from .llm_client import AllProvidersFailedError, EmbeddingClient, LLMClient
 from .models import ItineraryRequest
 from .orchestrator import run_tier1
+from .rag import copilot
+from .rag.retriever import RetrievalUnavailableError, build_retriever
 from .tools import catalog
 from .tools.catalog import CatalogUnavailableError
 
@@ -49,6 +52,10 @@ class EchoRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=500)
 
 
+class ChatRequest(BaseModel):
+    question: str = Field(..., min_length=2, max_length=500)
+
+
 # Preferences and ItineraryRequest now live in src/models.py so the orchestrator
 # and CLI can import them without pulling in FastAPI.
 
@@ -75,11 +82,14 @@ async def readiness() -> dict:
     except CatalogUnavailableError:
         dataset_ready = False
 
+    rag_mode = "upstash" if (settings.upstash_configured and _embedder.configured) else "local"
+
     return {
         "llm_providers": _llm.provider_names(),
         "llm_configured": _llm.configured,
         "embeddings_configured": _embedder.configured,
         "vector_db_configured": settings.upstash_configured,
+        "rag_retriever": rag_mode,
         "dataset_ready": dataset_ready,
         "default_tier": settings.default_tier,
         "allowed_origins": list(settings.allowed_origins),
@@ -146,8 +156,8 @@ async def _itinerary_stream(req: ItineraryRequest) -> AsyncIterator[str]:
     use_mock = not _llm.configured
     try:
         if req.tier in (0, 2):
-            # Tier 0 (M3) and Tier 2 (M4) aren't built yet; run Tier 1 and say so.
-            yield _sse({"event": "notice", "message": f"Tier {req.tier} lands later; running Tier 1."})
+            # Tier 0 is /chat; Tier 2 (M4) isn't built yet. Run Tier 1 and say so.
+            yield _sse({"event": "notice", "message": f"Tier {req.tier} runs elsewhere; using Tier 1 here."})
         async for event in run_tier1(req.preferences, mock=use_mock):
             yield _sse(event)
     except CatalogUnavailableError as exc:
@@ -168,5 +178,19 @@ async def itinerary(req: ItineraryRequest) -> StreamingResponse:
 
 
 @app.post("/chat")
-async def chat_tier0() -> dict:
-    raise HTTPException(status_code=501, detail="Tier 0 RAG copilot lands in M3.")
+async def chat(req: ChatRequest) -> dict:
+    """Tier 0 RAG copilot: a grounded answer over the Calgary dataset only.
+
+    Uses the real Upstash + Gemini retriever when configured, else the local
+    lexical retriever — so it answers with no keys too. The model is the free
+    chain when configured, else the deterministic mock. Either way the answer
+    is guarded against naming a venue that isn't in the knowledge base.
+    """
+    try:
+        retriever = build_retriever()
+        model = MockLLM() if not _llm.configured else default_model()
+        result = await copilot.answer_question(req.question, model=model, retriever=retriever)
+        result["mock"] = not _llm.configured
+        return result
+    except RetrievalUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=f"Knowledge base not built: {exc}") from exc
