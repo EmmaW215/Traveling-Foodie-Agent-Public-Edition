@@ -1,8 +1,9 @@
 """FastAPI orchestrator.
 
 M0 established the deploy path and the LLM fallback chain; M1 added the dataset;
-M2 the Tier 1 itinerary pipeline behind /itinerary (SSE); M3 the Tier 0 RAG
-copilot behind /chat. Tier 2's multi-agent orchestrator lands in M4.
+M2 the Tier 1 itinerary pipeline; M3 the Tier 0 RAG copilot behind /chat; M4 the
+Tier 2 multi-agent orchestrator. /itinerary streams Tier 1 or Tier 2 over SSE
+(tier 2 is the default); /chat is the Tier 0 copilot.
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ from .agents.mock import MockLLM
 from .config import settings
 from .llm_client import AllProvidersFailedError, EmbeddingClient, LLMClient
 from .models import ItineraryRequest
-from .orchestrator import run_tier1
+from .orchestrator import run_tier1, run_tier2
 from .rag import copilot
 from .rag.retriever import RetrievalUnavailableError, build_retriever
 from .tools import catalog
@@ -155,10 +156,15 @@ async def _itinerary_stream(req: ItineraryRequest) -> AsyncIterator[str]:
     """
     use_mock = not _llm.configured
     try:
-        if req.tier in (0, 2):
-            # Tier 0 is /chat; Tier 2 (M4) isn't built yet. Run Tier 1 and say so.
-            yield _sse({"event": "notice", "message": f"Tier {req.tier} runs elsewhere; using Tier 1 here."})
-        async for event in run_tier1(req.preferences, mock=use_mock):
+        if req.tier == 0:
+            # Tier 0 is the /chat copilot; the itinerary endpoint runs Tier 1.
+            yield _sse({"event": "notice", "message": "Tier 0 is the /chat copilot; running Tier 1 here."})
+            runner = run_tier1
+        elif req.tier == 2:
+            runner = run_tier2
+        else:
+            runner = run_tier1
+        async for event in runner(req.preferences, mock=use_mock):
             yield _sse(event)
     except CatalogUnavailableError as exc:
         yield _sse({"event": "error", "detail": f"Dataset not built: {exc}"})
@@ -169,7 +175,7 @@ async def _itinerary_stream(req: ItineraryRequest) -> AsyncIterator[str]:
 
 @app.post("/itinerary")
 async def itinerary(req: ItineraryRequest) -> StreamingResponse:
-    """Tier 1 itinerary as Server-Sent Events: trace frames then a final frame."""
+    """Tier 1 or Tier 2 itinerary as Server-Sent Events: trace frames then final."""
     return StreamingResponse(
         _itinerary_stream(req),
         media_type="text/event-stream",
