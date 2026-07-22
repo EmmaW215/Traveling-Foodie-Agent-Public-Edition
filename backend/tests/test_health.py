@@ -50,8 +50,29 @@ def test_readiness_reports_dataset_state():
     assert client.get("/readiness").json()["dataset_ready"] is True
 
 
-def test_chat_tier0_still_a_stub():
-    assert client.post("/chat").status_code == 501
+def test_chat_answers_a_grounded_question():
+    """/chat is the Tier 0 copilot (M3). No keys -> local retriever + mock."""
+    r = client.post("/chat", json={"question": "where can I get ramen for lunch?"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["grounded"] is True
+    assert body["refused"] is False
+    assert body["citations"]
+    assert body["retriever"] == "local"  # no Upstash configured in tests
+
+
+def test_chat_refuses_off_topic():
+    r = client.post("/chat", json={"question": "how do I rebuild a car gearbox"})
+    assert r.status_code == 200
+    assert r.json()["refused"] is True
+
+
+def test_chat_validates_question_length():
+    assert client.post("/chat", json={"question": "x"}).status_code == 422
+
+
+def test_readiness_reports_rag_retriever_mode():
+    assert client.get("/readiness").json()["rag_retriever"] == "local"
 
 
 def test_itinerary_streams_a_full_run():
