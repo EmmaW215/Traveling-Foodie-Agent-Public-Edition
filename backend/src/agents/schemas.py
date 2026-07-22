@@ -61,3 +61,23 @@ class FormatterOutput(BaseModel):
         ..., description="One friendly paragraph per day, in order."
     )
     closing: str = Field(default="", description="Optional sign-off sentence.")
+
+
+class CriticIssue(BaseModel):
+    """One problem the Critic found with the assembled plan.
+
+    `slot` MUST be a member of the closed SLOT_IDS vocabulary (or "budget"). It
+    is validated against that enum in code — the whole reason the Critic loop is
+    dangerous is that a model will invent a slot name ("day1_lunch") and a naive
+    orchestrator will then re-plan the wrong slot, or every slot.
+    """
+
+    slot: str = Field(..., description="The slot the issue is in (a SLOT_IDS value or 'budget').")
+    issue: str = Field(..., description="Short machine-ish tag, e.g. 'too_expensive', 'repetitive'.")
+    suggestion: str = Field(default="", description="Optional human-readable fix hint.")
+
+
+class CriticOutput(BaseModel):
+    issues: list[CriticIssue] = Field(
+        default_factory=list, description="Problems found; empty means the plan is good."
+    )

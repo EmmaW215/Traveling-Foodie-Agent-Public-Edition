@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Run the Tier 1 pipeline from the command line.
+"""Run the itinerary pipeline from the command line.
 
-    python -m scripts.demo                 # S1 scenario, mock mode (no keys)
+    python -m scripts.demo                 # Tier 2, S1 scenario, mock (no keys)
+    python -m scripts.demo --tier 1        # the sequential pipeline
     python -m scripts.demo --live          # use the real free LLM chain
     python -m scripts.demo --days 1 --budget 250 --cuisines thai,indian
 
-The Tier-0-copilot equivalent of a working demo: it prints the streamed trace
-exactly as the UI will render it, then the final itinerary. Mock mode is the
+Prints the streamed trace exactly as the UI will render it, then the final
+itinerary. Tier 2 (parallel + Critic loop) is the default; mock mode is the
 default so it runs anywhere, including CI, with zero setup.
 """
 from __future__ import annotations
@@ -19,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.models import Preferences  # noqa: E402
-from src.orchestrator import run_tier1  # noqa: E402
+from src.orchestrator import run_tier1, run_tier2  # noqa: E402
 
 # S1 — the standard scenario carried from the hackathon: 2 days, $500, peanut
 # allergy, party of two, international food.
@@ -40,12 +41,21 @@ def _print_event(event: dict) -> None:
         print(f"\n  PLANNER  {event['summary']}")
         if event["cuisines_priority"]:
             print(f"           cuisines: {', '.join(event['cuisines_priority'])}")
+    elif kind == "executors_dispatched":
+        print(f"\n  DISPATCH {len(event['slots'])} slots in parallel")
     elif kind == "executor_result":
-        tag = "AI" if event["picked_by"] == "model" else "fallback"
-        print(
-            f"  PICK     {event['slot']:<17} {event['name']:<32} "
-            f"${event['spent']:>6.0f} spent  [{tag}]"
-        )
+        # Tier 1 carries running spend; Tier 2 runs in parallel (no running total).
+        if "spent" in event:
+            tag = "AI" if event.get("picked_by") == "model" else "fallback"
+            print(f"  PICK     {event['slot']:<17} {event['name']:<32} ${event['spent']:>6.0f} spent  [{tag}]")
+        else:
+            print(f"  PICK     {event['slot']:<17} {event['name']}")
+    elif kind == "critic_reviewed":
+        n = len(event["issues"])
+        tags = ", ".join(sorted({i["issue"] for i in event["issues"]})) or "clean"
+        print(f"\n  CRITIC   iteration {event['iteration']}: {n} issue(s) — {tags}")
+    elif kind == "revision":
+        print(f"  REVISE   {event['slot']:<17} [{event['issue']}] {event['replaced']} -> {event['with_']}")
     elif kind == "validation":
         status = "PASS" if event["ok"] else f"FAIL {event['issues']}"
         print(f"\n  VALIDATE {status}")
@@ -80,6 +90,7 @@ def _print_final(event: dict) -> None:
 
 async def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--tier", type=int, choices=(1, 2), default=2, help="Which tier to run.")
     parser.add_argument("--live", action="store_true", help="Use real free LLM providers.")
     parser.add_argument("--days", type=int, default=None)
     parser.add_argument("--budget", type=float, default=None)
@@ -101,12 +112,13 @@ async def main() -> int:
         prefs.allergies = [a.strip() for a in args.allergies.split(",") if a.strip()]
 
     mode = "live free LLM chain" if args.live else "mock mode (no keys needed)"
-    print(f"Traveling Foodie Agent — Tier 1 demo ({mode})")
+    print(f"Traveling Foodie Agent — Tier {args.tier} demo ({mode})")
     print(f"Request: {prefs.days} days, ${prefs.budget_total:.0f}, party of {prefs.party_size}, "
           f"cuisines={prefs.cuisines or 'any'}, allergies={prefs.allergies or 'none'}")
 
+    runner = run_tier2 if args.tier == 2 else run_tier1
     final = None
-    async for event in run_tier1(prefs, mock=not args.live):
+    async for event in runner(prefs, mock=not args.live):
         _print_event(event)
         if event["event"] == "final":
             final = event

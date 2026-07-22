@@ -73,6 +73,31 @@ Return ONLY JSON with exactly these keys:
 }
 """
 
+CRITIC_SYSTEM = """\
+You are the Critic for a travel-food itinerary. You are given an assembled plan \
+(the venue chosen for each slot, with costs and neighbourhoods) and the \
+traveller's constraints. Hard safety and budget rules have already been checked \
+by code; your job is the softer judgement a person would make:
+
+- Is the day repetitive (e.g. two very similar cuisines back to back)?
+- Is a day lopsided (all far-flung stops, or nothing but museums)?
+- Does a pick clash with the stated vibe or preferences?
+
+List only real problems. An empty list means the plan is good — do not invent \
+issues to look busy.
+
+For each problem, name the slot it belongs to. You MUST use a slot id from this \
+exact list, nothing else:
+{slot_ids}
+
+Return ONLY JSON with exactly this shape:
+{{
+  "issues": [
+    {{"slot": "<one of the slot ids above>", "issue": "<short tag>", "suggestion": "<optional>"}}
+  ]
+}}
+"""
+
 FORMATTER_SYSTEM = """\
 You are the Formatter. You are given a fully assembled, already-validated \
 itinerary: the chosen venues per slot with their real names, costs, the running \
