@@ -47,6 +47,7 @@ class MockLLM:
         self.calls.append(role)
         handler = {
             "copilot": self._copilot,
+            "critic": self._critic,
             "planner": self._planner,
             "restaurant": self._pick,
             "attraction": self._pick,
@@ -57,12 +58,18 @@ class MockLLM:
     @staticmethod
     def _role(system: str) -> str:
         head = system[:40].lower()
-        # Copilot first: its prompt also mentions venues, so check it before
-        # the executor roles.
-        for role in ("copilot", "planner", "restaurant", "attraction", "formatter"):
+        # Copilot and critic first: their prompts also mention venues, so check
+        # them before the executor roles.
+        for role in ("copilot", "critic", "planner", "restaurant", "attraction", "formatter"):
             if role in head:
                 return role
         return "unknown"
+
+    @staticmethod
+    def _critic(user: str) -> str:
+        """The soft critic finds nothing — the deterministic checks carry the
+        Tier 2 loop offline. A live model adds real taste critique."""
+        return json.dumps({"issues": []})
 
     @staticmethod
     def _copilot(user: str) -> str:
