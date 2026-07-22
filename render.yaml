@@ -28,14 +28,12 @@ services:
         sync: false
       # Non-secret config — safe to keep here.
       - key: ALLOWED_ORIGIN
-        value: https://traveling-foodie-agent-public-edition.vercel.app,http://localhost:3000
+        value: https://traveling-foodie-agent-public.vercel.app,http://localhost:3000
       - key: PUBLIC_APP_URL
-        value: https://traveling-foodie-agent-public-edition.vercel.app
+        value: https://traveling-foodie-agent-public.vercel.app
       - key: DEFAULT_TIER
         value: "2"
-      - key: EMBEDDING_MODEL
-        value: gemini-embedding-001
-      # Must equal the dimension of the Upstash Vector index.
+      # 1536 pairs with gemini-embedding-001 and matches the Upstash index.
       - key: EMBEDDING_DIMENSIONS
         value: "1536"
       - key: PYTHON_VERSION
