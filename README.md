@@ -204,7 +204,9 @@ MIT. Venue data is fictional (see `backend/data/README.md`); the schema is OpenS
 for a future real-data import.
 
 <img width="1270" height="1191" alt="image" src="https://github.com/user-attachments/assets/204d28d3-4bef-45d0-8c57-7893036e30ed" />
-<img width="1270" height="1191" alt="image" src="https://github.com/user-attachments/assets/c12504cf-ca2c-4891-be2a-3c7a8cf526a1" />
+<img width="1270" height="1115" alt="image" src="https://github.com/user-attachments/assets/fcdcce55-71f1-4ea3-b8ac-03a754b06ec1" />
+<img width="1270" height="1119" alt="image" src="https://github.com/user-attachments/assets/7b8a6534-b73e-4322-a49a-f8f87e303720" />
+
 <img width="1270" height="1191" alt="image" src="https://github.com/user-attachments/assets/656328fe-cd0f-4475-ac84-635bc09ea27a" />
 <img width="1270" height="842" alt="image" src="https://github.com/user-attachments/assets/b5a05715-c88c-46cb-ae0e-317f950af865" />
 
