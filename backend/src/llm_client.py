@@ -74,7 +74,8 @@ class LLMClient:
     ) -> LLMResponse:
         if not self.providers:
             raise AllProvidersFailedError(
-                "No LLM provider configured. Set at least GROQ_API_KEY or GEMINI_API_KEY."
+                "No LLM provider configured. Set at least GROQ_API_KEY, "
+                "XAI_API_KEY, or GEMINI_API_KEY."
             )
 
         errors: list[str] = []

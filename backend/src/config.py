@@ -42,10 +42,14 @@ class Provider:
 
 
 # ---------------------------------------------------------------------------
-# Provider chain: Groq (primary) -> Gemini (fallback 1) -> OpenRouter (last).
+# Provider chain: Groq -> xAI (Grok) -> Gemini -> OpenRouter.
 #
 # Model IDs are env-overridable because free-tier catalogs churn. Verify the
 # current ones with `python scripts/smoke_test.py` before trusting a default.
+#
+# NOTE: This stack uses OpenAI-compatible HTTPS (httpx), NOT the `groq` Python
+# SDK. Setting GROQ_MODEL is enough to select qwen/qwen3.6-27b (or any Groq
+# model id). Do NOT put an xAI key in GROQ_API_KEY — use XAI_API_KEY instead.
 # ---------------------------------------------------------------------------
 def build_provider_chain() -> list[Provider]:
     chain = [
@@ -53,7 +57,14 @@ def build_provider_chain() -> list[Provider]:
             name="groq",
             base_url=_env("GROQ_BASE_URL", "https://api.groq.com/openai/v1"),
             api_key=_env("GROQ_API_KEY"),
-            model=_env("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            # Current Groq catalog default used by this project (override via env).
+            model=_env("GROQ_MODEL", "qwen/qwen3.6-27b"),
+        ),
+        Provider(
+            name="xai",
+            base_url=_env("XAI_BASE_URL", "https://api.x.ai/v1"),
+            api_key=_env("XAI_API_KEY"),
+            model=_env("XAI_MODEL", "grok-4.20-multi-agent-0309"),
         ),
         Provider(
             name="gemini",
@@ -70,7 +81,7 @@ def build_provider_chain() -> list[Provider]:
             api_key=_env("OPENROUTER_API_KEY"),
             # No default: OpenRouter's free lineup rotates and any slug we
             # hardcode will rot. Blank => provider skipped (it is the optional
-            # tertiary fallback). `smoke_test.py --list-free` lists live ones.
+            # last-resort fallback). `smoke_test.py --list-free` lists live ones.
             model=_env("OPENROUTER_MODEL"),
             extra_headers={
                 "HTTP-Referer": _env("PUBLIC_APP_URL", "https://localhost:3000"),

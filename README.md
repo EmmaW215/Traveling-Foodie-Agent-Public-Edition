@@ -85,6 +85,7 @@ Browser ──> Vercel (Next.js chat UI, static) ──HTTPS/SSE──> Render (
 | Key | Where | Notes |
 |---|---|---|
 | `GROQ_API_KEY` | console.groq.com | primary chat provider (starts `gsk_`) |
+| `XAI_API_KEY` | console.x.ai | optional paid Grok fallback (starts `xai-`) |
 | `GEMINI_API_KEY` | aistudio.google.com | chat fallback **and** embeddings |
 | `UPSTASH_VECTOR_REST_URL` / `_TOKEN` | console.upstash.com → Vector | create index: **1536 dims, COSINE** |
 | `OPENROUTER_API_KEY` *(optional)* | openrouter.ai | last-resort fallback |
@@ -106,7 +107,7 @@ OPENROUTER_API_KEY        (optional)
 ```
 
 Optionally add repository **Variables** to override model IDs without editing code:
-`GROQ_MODEL`, `GEMINI_MODEL`, `OPENROUTER_MODEL`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`,
+`GROQ_MODEL`, `XAI_MODEL`, `GEMINI_MODEL`, `OPENROUTER_MODEL`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`,
 and `RENDER_HEALTH_URL` (used by the keep-alive workflow).
 
 ### 3. Deploy the backend to Render

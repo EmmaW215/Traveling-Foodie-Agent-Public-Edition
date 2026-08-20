@@ -40,7 +40,21 @@ def test_blank_model_var_does_not_disable_groq(monkeypatch):
     monkeypatch.setenv("GROQ_MODEL", "")
     chain = config.build_provider_chain()
     groq = next(p for p in chain if p.name == "groq")
-    assert groq.model == "llama-3.3-70b-versatile"
+    assert groq.model == "qwen/qwen3.6-27b"
+
+
+def test_xai_enabled_when_key_present(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_MODEL", "")
+    chain = config.build_provider_chain()
+    xai = next(p for p in chain if p.name == "xai")
+    assert xai.base_url == "https://api.x.ai/v1"
+    assert xai.model == "grok-4.20-multi-agent-0309"
+
+
+def test_xai_skipped_without_key(monkeypatch):
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    assert "xai" not in [p.name for p in config.build_provider_chain()]
 
 
 def test_openrouter_skipped_when_no_model_configured(monkeypatch):

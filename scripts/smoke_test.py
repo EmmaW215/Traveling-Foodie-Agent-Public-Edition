@@ -48,7 +48,15 @@ CHAT_PROVIDERS = [
         "key_prefix": "gsk_",
         "base": env("GROQ_BASE_URL", "https://api.groq.com/openai/v1"),
         "model_env": "GROQ_MODEL",
-        "model_default": "llama-3.3-70b-versatile",
+        "model_default": "qwen/qwen3.6-27b",
+    },
+    {
+        "name": "xai",
+        "key_env": "XAI_API_KEY",
+        "key_prefix": "xai-",
+        "base": env("XAI_BASE_URL", "https://api.x.ai/v1"),
+        "model_env": "XAI_MODEL",
+        "model_default": "grok-4.20-multi-agent-0309",
     },
     {
         "name": "gemini",
@@ -86,7 +94,13 @@ def _key_hint(provider: dict, key: str) -> str:
     if provider["name"] == "groq" and key.startswith("xai-"):
         return (
             "\n         ^ that looks like an xAI (Grok) key. Groq is a different"
-            " company — its keys start with 'gsk_' (console.groq.com)"
+            " company — its keys start with 'gsk_' (console.groq.com). Put xAI"
+            " keys in XAI_API_KEY instead."
+        )
+    if provider["name"] == "xai" and key.startswith("gsk_"):
+        return (
+            "\n         ^ that looks like a Groq key. xAI keys usually start with"
+            " 'xai-' — put Groq keys in GROQ_API_KEY instead."
         )
     return f"\n         ^ expected a key starting with '{prefix}'"
 
