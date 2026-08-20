@@ -202,3 +202,7 @@ Cost audit at every step: **$0/month**, no credit card in the runtime path.
 
 MIT. Venue data is fictional (see `backend/data/README.md`); the schema is OpenStreetMap-compatible
 for a future real-data import.
+
+<img width="1270" height="1191" alt="image" src="https://github.com/user-attachments/assets/204d28d3-4bef-45d0-8c57-7893036e30ed" />
+<img width="1270" height="1191" alt="image" src="https://github.com/user-attachments/assets/c12504cf-ca2c-4891-be2a-3c7a8cf526a1" />
+
